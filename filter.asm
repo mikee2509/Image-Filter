@@ -1,15 +1,17 @@
 .data
 		
 header:		.space 56
+buffer:		.space 9000
+outbuffer:	.space 9000
 size:		.space 4  # space for input image bitmap size in bytes
 width:		.space 4  # space for image width in pixels
 height:		.space 4  # space for image height in pixels
 
 welcomeMsg:	.asciiz "High Pass / Low Pass filter\n   Michal Sieczkowski 04.2017\n\n"
 openedMsg:	.asciiz "File opened\n   Processing...\n"
-errorMsg:	.asciiz "Error opening file\n"
-inFileName:	.asciiz "aaa.bmp"
-outFileName:	.asciiz "bbb.bmp"
+errorMsg:	.asciiz "Error opening/reading file\n"
+inFileName:	.asciiz "aaa2.bmp"
+outFileName:	.asciiz "bbb2debug.bmp"
 
 
 debugWidth: 	.asciiz "Width: "
@@ -65,10 +67,10 @@ main:
 	
 	
 	# Reading the header:
-  	move $a0, $t0     
-	la   $a1, header+2   	  # lw laduje tylko slowa o adreasie podzielnym przez 4
-  	li   $a2, 54
-  	li   $v0, 14  	 
+  	move $a0, $t0     	# input file descriptor
+	la   $a1, header+2   	# input buffer address
+  	li   $a2, 54		# num of characters to read
+  	li   $v0, 14  	 	# read from file
   	syscall			
 	
 	lw $s0, header+4	# load file size
@@ -122,12 +124,131 @@ main:
 	li   $v0, 15         # write to file
 	syscall
 	
+	# Calculate row size:
+	mul $s3, $s1, 24	# The formula is:	
+	addi $s3, $s3, 31	# floor((24*width + 32) / 32) * 4
+	li $t2, 32
+	div $s3, $t2		# Floor is achived by taking the quotient of division
+	mflo $s3
+	mul $s3, $s3, 4
+	### $s3 now holds row size
 	
-	b exit
+	# Calculate padding:
+	mul $t2, $s1, 3 
+	sub $t9, $s3, $t2
+	### $t9 now holds padding
+
+
+	###### s0 s1 s2 will be reused from now on ######
 	
-fileError:
-	la $a0, errorMsg 	# Error opening file message
-	li $v0, 4
+	li $s0, 1 # center
+	li $s1, 1 # edge
+	li $s2, 1 # corner
+	mul $s6, $s1, 4
+	mul $s7, $s2, 4
+	add $s6, $s6, $s7
+	add $s6, $s6, $s0  # sum of factors 
+	
+	
+readToBuffer:
+	# Read to buffer:
+  	move $a0, $t0     	# input file descriptor
+	la   $a1, buffer   	# input buffer address
+  	li   $a2, 9000		# max num of characters to read
+  	li   $v0, 14  	 	# read from file
+  	syscall	
+  	move $t2, $v0		
+  	bltz $t2, fileError
+  	
+  	# ok wczytałem t2 bajtów potem sprawdze czy to tyle (t2<9000) czy trzeba jeszcze, 
+  	# processuje pierwszys rząd
+  
+  
+  	move $t3, $s3
+	lw $t8, size
+	sub $t8, $t8, $s3
+  	
+nextRow:
+  	#End of row position:
+  	add $t4, $t3, $s3	# Start of row + row size 
+  	sub $t4, $t4, $t9 	# - padding 
+  	sub $t4, $t4, 6		# - 2 pixels
+
+  			
+nextByte:
+	
+	lbu $s4, buffer($t3)
+	mul $s4, $s4, $s1 	# middle left 
+	move $s5, $s4
+	
+	lbu $s4, buffer+3($t3)
+	mul $s4, $s4, $s0	# center
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+6($t3)
+	mul $s4, $s4, $s1	# middle right
+	add $s5, $s5, $s4
+	
+	#######################
+	
+	sub $t3, $t3, $s3
+	
+	lbu $s4, buffer($t3)
+	mul $s4, $s4, $s2 	# bottom left
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+3($t3)
+	mul $s4, $s4, $s1	# bottom center
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+6($t3)
+	mul $s4, $s4, $s2	# bottom right
+	add $s5, $s5, $s4
+	
+	#######################
+	
+	add $t3, $t3, $s3
+	add $t3, $t3, $s3
+	
+	lbu $s4, buffer($t3)
+	mul $s4, $s4, $s2 	# top left
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+3($t3)
+	mul $s4, $s4, $s1	# top center
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+6($t3)
+	mul $s4, $s4, $s2	# top right
+	add $s5, $s5, $s4
+	
+	#######################
+	
+	# Calculate new blue value:
+	div $s5, $s6		
+	mflo $s4		
+	
+	# Store this value in outbuffer:
+	sub $t3, $t3, $s3
+	sb $s4, outbuffer+3($t3)
+	
+	
+	# Increment pixel
+	add $t3, $t3, 1
+	blt $t3, $t4, nextByte
+	
+	# Increment row
+	add  $t3, $t3, $t9  
+	addi $t3, $t3, 6
+	blt  $t3, $t8, nextRow
+	
+	
+	
+	# Write header to output file:
+	move $a0, $t1        # output file descriptor 
+	la   $a1, outbuffer  # address of buffer from which to write
+	li   $a2, 9000       # buffer length
+	li   $v0, 15         # write to file
 	syscall
 	
 exit:	
@@ -143,3 +264,11 @@ exit:
 	# Exit program:
 	li $v0, 10
 	syscall
+
+	
+fileError:
+	la $a0, errorMsg 	# Error opening file message
+	li $v0, 4
+	syscall
+	
+	b exit

@@ -1,4 +1,7 @@
 .data
+	.eqv CENTER_FACTOR  2
+	.eqv EDGE_FACTOR    1
+	.eqv CORNER_FACTOR  1
 		
 header:		.space 56
 buffer:		.space 9000
@@ -8,16 +11,18 @@ width:		.space 4  # space for image width in pixels
 height:		.space 4  # space for image height in pixels
 
 welcomeMsg:	.asciiz "High Pass / Low Pass filter\n   Michal Sieczkowski 04.2017\n\n"
-openedMsg:	.asciiz "File opened\n   Processing...\n"
-errorMsg:	.asciiz "Error opening/reading file\n"
-inFileName:	.asciiz "aaa2.bmp"
-outFileName:	.asciiz "bbb2debug.bmp"
+openedMsg:	.asciiz "File opened\n"
+fileErrorMsg:	.asciiz "Error opening/reading file\n"
+headerErrorMsg:	.asciiz "Error in file header\n"
+inFileName:	.asciiz "jacht.bmp"
+outFileName:	.asciiz "jacht_out.bmp"
 
 
 debugWidth: 	.asciiz "Width: "
 debugHeight: 	.asciiz "\nHeight: "
 debugSize:	.asciiz "\nSize: "
 debugNewLine:   .asciiz "\n"
+
 
 .text
 .globl main
@@ -29,14 +34,10 @@ main:
 	syscall
 	
 	
-	# -----------------------  Reading the header  -----------------------------
+	# ----------------------------  Opening files  -----------------------------
 	# $t0 - input file descriptor
 	# $t1 - output file descriptor
-	# $s0 - bitmap size
-	# $s1 - width in pixels
-	# $s2 - height in pixels
 	# --------------------------------------------------------------------------
-	
 	
 	# Open input file for reading:
 	la $a0, inFileName	# file name
@@ -66,13 +67,38 @@ main:
 	syscall
 	
 	
-	# Reading the header:
+	
+	# ------------------------  Header processing  -----------------------------
+	# $t8 - row size
+	# $t9 - padding
+	#---------------------------------------------------------------------------
+	
+	# Reading the header from file
   	move $a0, $t0     	# input file descriptor
 	la   $a1, header+2   	# input buffer address
   	li   $a2, 54		# num of characters to read
   	li   $v0, 14  	 	# read from file
   	syscall			
-	
+  	
+  	# Check the first 2 bytes
+  	lb $s0, header+2
+  	lb $s1, header+3
+  	bne $s0, 'B', headerError
+  	bne $s1, 'M', headerError
+  	
+  	# Check offset - starting address of the bitmap
+  	lw $s0, header+12
+  	bne $s0, 54, headerError
+  	
+  	# Check header size
+  	lw $s0, header+16
+  	bne $s0, 40, headerError
+  	
+  	# Check bits per pixel
+  	lh $s0, header+30
+  	bne $s0, 24, headerError
+  	
+  	# Load image size, width and height
 	lw $s0, header+4	# load file size
 	lw $s1, header+20	# load image width
 	lw $s2, header+24	# load image height
@@ -81,13 +107,6 @@ main:
 	sw  $s0, size		# store image bitmap size
 	sw  $s1, width		# store image width
 	sw  $s2, height		# store image height
-	
-	
-	### TODO: Check: #############################
-	##	 	*the size of header (54)    ##
-	##		*bits per pixel (24)        ##
-	##		*first two bytes ale "BM"   ##
-	##############################################
 	
 ##DEBUG----------------------------------
 	la $a0, debugWidth 	
@@ -114,8 +133,28 @@ main:
 	la $a0, debugNewLine 	
 	li $v0, 4
 	syscall
-
 ##---------------------------------------
+	
+	# ---------- Calculate row size ----------
+	# The formula is:	
+	# floor((24*width + 31) / 32) * 4
+	#
+	# [temp] $s1 - width in pixels
+	# ----------------------------------------
+	mul $s0, $s1, 24
+	addi $s0, $s0, 31	
+	li $s2, 32
+	div $s0, $s2		# Floor is achived by taking the quotient of division
+	mflo $s0
+	mul $t8, $s0, 4		# $t8 holds row size from now on
+	
+	
+	# ---------- Calculate padding -----------
+	# padding = row_size - (width * 3)
+	# ----------------------------------------
+	mul $s0, $s1, 3		
+	sub $t9, $t8, $s0	# $t9 holds padding from now on
+
 
 	# Write header to output file:
 	move $a0, $t1        # output file descriptor 
@@ -124,26 +163,22 @@ main:
 	li   $v0, 15         # write to file
 	syscall
 	
-	# Calculate row size:
-	mul $s3, $s1, 24	# The formula is:	
-	addi $s3, $s3, 31	# floor((24*width + 32) / 32) * 4
-	li $t2, 32
-	div $s3, $t2		# Floor is achived by taking the quotient of division
-	mflo $s3
-	mul $s3, $s3, 4
-	### $s3 now holds row size
 	
-	# Calculate padding:
-	mul $t2, $s1, 3 
-	sub $t9, $s3, $t2
-	### $t9 now holds padding
-
-
-	###### s0 s1 s2 will be reused from now on ######
 	
-	li $s0, 1 # center
-	li $s1, 1 # edge
-	li $s2, 1 # corner
+	# ------------------------  Bitmap processing  -----------------------------
+	# Filter window:
+	#  |s2|s1|s2|
+	#  |s1|s0|s1|
+	#  |s2|s1|s2|
+	#
+	# $s0 - center factor
+	# $s1 - edge factor
+	# $s2 - corner facotr
+	#---------------------------------------------------------------------------
+	
+	li $s0, CENTER_FACTOR
+	li $s1, EDGE_FACTOR
+	li $s2, CORNER_FACTOR
 	mul $s6, $s1, 4
 	mul $s7, $s2, 4
 	add $s6, $s6, $s7
@@ -164,13 +199,13 @@ readToBuffer:
   	# processuje pierwszys rząd
   
   
-  	move $t3, $s3
-	lw $t8, size
-	sub $t8, $t8, $s3
+  	move $t3, $t8
+	lw $t7, size
+	sub $t7, $t7, $t8
   	
 nextRow:
   	#End of row position:
-  	add $t4, $t3, $s3	# Start of row + row size 
+  	add $t4, $t3, $t8	# Start of row + row size 
   	sub $t4, $t4, $t9 	# - padding 
   	sub $t4, $t4, 6		# - 2 pixels
 
@@ -191,7 +226,7 @@ nextByte:
 	
 	#######################
 	
-	sub $t3, $t3, $s3
+	sub $t3, $t3, $t8
 	
 	lbu $s4, buffer($t3)
 	mul $s4, $s4, $s2 	# bottom left
@@ -207,8 +242,8 @@ nextByte:
 	
 	#######################
 	
-	add $t3, $t3, $s3
-	add $t3, $t3, $s3
+	add $t3, $t3, $t8
+	add $t3, $t3, $t8
 	
 	lbu $s4, buffer($t3)
 	mul $s4, $s4, $s2 	# top left
@@ -229,7 +264,7 @@ nextByte:
 	mflo $s4		
 	
 	# Store this value in outbuffer:
-	sub $t3, $t3, $s3
+	sub $t3, $t3, $t8
 	sb $s4, outbuffer+3($t3)
 	
 	
@@ -240,7 +275,7 @@ nextByte:
 	# Increment row
 	add  $t3, $t3, $t9  
 	addi $t3, $t3, 6
-	blt  $t3, $t8, nextRow
+	blt  $t3, $t7, nextRow
 	
 	
 	
@@ -267,7 +302,14 @@ exit:
 
 	
 fileError:
-	la $a0, errorMsg 	# Error opening file message
+	la $a0, fileErrorMsg 	# Error opening file message
+	li $v0, 4
+	syscall
+	
+	b exit
+	
+headerError:
+	la $a0, headerErrorMsg 	# Error opening file message
 	li $v0, 4
 	syscall
 	

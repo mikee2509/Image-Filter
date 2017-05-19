@@ -5,6 +5,7 @@
 		
 header:		.space 56
 buffer:		.space 9000
+buffer2:	.space 9000
 outbuffer:	.space 9000
 size:		.space 4  # space for input image bitmap size in bytes
 width:		.space 4  # space for image width in pixels
@@ -166,7 +167,7 @@ main:
 	
 	
 	# ------------------------  Bitmap processing  -----------------------------
-	# Filter window:
+	# Filter mask:
 	#  |s2|s1|s2|
 	#  |s1|s0|s1|
 	#  |s2|s1|s2|
@@ -174,44 +175,141 @@ main:
 	# $s0 - center factor
 	# $s1 - edge factor
 	# $s2 - corner facotr
+	# $s3 - sum of factors
+	#
+	# $s4 - value of single byte of pixel in mask
+	# $s5 - sum of bytes in mask multiplied by their factors 
+	#
+	# $t2 - number of bytes read 
+	# $t3 - current byte of bitmap
+	# $t4 - end of inner row position (a)
+	# $t5 - end of middle rows position (b)
+	# $t6 - start of inner row position (c) / start of padding bytes position (d)
+	#
+	#
+	# Example bitmap:
+	#   bitmap_size = 80B
+	#   image_width = 6pix = 18B
+	#   row_size = 20B
+	#   padding = 2B
+	#
+	#	|b. . | . . | . . | . . | . . | . . | . |
+	#	| . . | . . | . . | . . | . . | . . | . |
+	#	| . . |c. . | . . | . . | . . |a. . |d. |
+	#	| . . | . . | . . | . . | . . | . . | . |
+	#
 	#---------------------------------------------------------------------------
 	
 	li $s0, CENTER_FACTOR
 	li $s1, EDGE_FACTOR
 	li $s2, CORNER_FACTOR
-	mul $s6, $s1, 4
+	mul $s3, $s1, 4
 	mul $s7, $s2, 4
-	add $s6, $s6, $s7
-	add $s6, $s6, $s0  # sum of factors 
+	add $s3, $s3, $s7
+	add $s3, $s3, $s0  # sum of factors 
 	
 	
 readToBuffer:
 	# Read to buffer:
   	move $a0, $t0     	# input file descriptor
-	la   $a1, buffer   	# input buffer address
+	la   $a1, buffer    # input buffer address
   	li   $a2, 9000		# max num of characters to read
   	li   $v0, 14  	 	# read from file
   	syscall	
-  	move $t2, $v0		
+  	move $t2, $v0		# $v0 contains number of characters read (0 if end-of-file, negative if error)
   	bltz $t2, fileError
   	
   	# ok wczytałem t2 bajtów potem sprawdze czy to tyle (t2<9000) czy trzeba jeszcze, 
   	# processuje pierwszys rząd
   
   
-  	move $t3, $t8
-	lw $t7, size
-	sub $t7, $t7, $t8
+  	move $t3, $t8		# $t3 - current position (now: 1st pixel in 2nd row)
+
+	lw $t5, size 		
+	sub $t5, $t5, $t8	# $t5 - bitmap_size - row_size
+
   	
 nextRow:
-  	#End of row position:
+	#Calculate start of inner row position
+	add $t6, $t3, 3
+
+  	#Calculate end of inner row position:
   	add $t4, $t3, $t8	# Start of row + row size 
   	sub $t4, $t4, $t9 	# - padding 
-  	sub $t4, $t4, 6		# - 2 pixels
+  	sub $t4, $t4, 3		# - 1 pixel
 
-  			
-nextByte:
+leftEdgePixel:
+	##### START ##########
+
+	lbu $s4, buffer($t3)
+	mul $s4, $s4, $s1 	# middle left = center
+	move $s5, $s4
 	
+	lbu $s4, buffer($t3)
+	mul $s4, $s4, $s0	# center
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+3($t3)
+	mul $s4, $s4, $s1	# middle right
+	add $s5, $s5, $s4
+	
+	#######################
+	
+	sub $t3, $t3, $t8
+	
+	lbu $s4, buffer($t3)
+	mul $s4, $s4, $s2 	# bottom left = bottom center
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer($t3)
+	mul $s4, $s4, $s1	# bottom center
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+3($t3)
+	mul $s4, $s4, $s2	# bottom right
+	add $s5, $s5, $s4
+	
+	add $t3, $t3, $t8
+
+	#######################
+	
+	add $t3, $t3, $t8
+	
+	lbu $s4, buffer($t3)
+	mul $s4, $s4, $s2 	# top left = top center
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer($t3)
+	mul $s4, $s4, $s1	# top center
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+3($t3)
+	mul $s4, $s4, $s2	# top right
+	add $s5, $s5, $s4
+	
+	sub $t3, $t3, $t8
+
+	###### END ############
+
+	# Calculate new pixel's byte value:
+	div $s5, $s3		
+	mflo $s4		
+	
+	# Store this value in outbuffer:
+	sb $s4, outbuffer($t3)
+	
+	# Go to the next left edge pixel's byte
+	add $t3, $t3, 1
+	blt $t3, $t6, leftEdgePixel
+
+	# Calculate start of padding position
+	add $t6, $t4, 3
+	
+
+middlePixels:
+	##### START ##########
+	sub $t3, $t3, 3
+
 	lbu $s4, buffer($t3)
 	mul $s4, $s4, $s1 	# middle left 
 	move $s5, $s4
@@ -240,9 +338,10 @@ nextByte:
 	mul $s4, $s4, $s2	# bottom right
 	add $s5, $s5, $s4
 	
+	add $t3, $t3, $t8
+
 	#######################
 	
-	add $t3, $t3, $t8
 	add $t3, $t3, $t8
 	
 	lbu $s4, buffer($t3)
@@ -257,28 +356,100 @@ nextByte:
 	mul $s4, $s4, $s2	# top right
 	add $s5, $s5, $s4
 	
-	#######################
+	sub $t3, $t3, $t8
+
+	add $t3, $t3, 3
+
+	###### END ############
+
 	
-	# Calculate new blue value:
-	div $s5, $s6		
+	# Calculate new pixel's byte value:
+	div $s5, $s3		
 	mflo $s4		
 	
 	# Store this value in outbuffer:
-	sub $t3, $t3, $t8
-	sb $s4, outbuffer+3($t3)
+	sb $s4, outbuffer($t3)
 	
 	
-	# Increment pixel
+	# Increment byte
 	add $t3, $t3, 1
-	blt $t3, $t4, nextByte
+	blt $t3, $t4, middlePixels
+
+
+rightEdgePixel:
+	##### START ##########
+	sub $t3, $t3, 3
+
+	lbu $s4, buffer($t3)
+	mul $s4, $s4, $s1 	# middle left 
+	move $s5, $s4
+	
+	lbu $s4, buffer+3($t3)
+	mul $s4, $s4, $s0	# center
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+3($t3)
+	mul $s4, $s4, $s1	# middle right = center
+	add $s5, $s5, $s4
+	
+	#######################
+	
+	sub $t3, $t3, $t8
+	
+	lbu $s4, buffer($t3)
+	mul $s4, $s4, $s2 	# bottom left
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+3($t3)
+	mul $s4, $s4, $s1	# bottom center
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+3($t3)
+	mul $s4, $s4, $s2	# bottom right = bottom center
+	add $s5, $s5, $s4
+	
+	add $t3, $t3, $t8
+
+	#######################
+	
+	add $t3, $t3, $t8
+	
+	lbu $s4, buffer($t3)
+	mul $s4, $s4, $s2 	# top left
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+3($t3)
+	mul $s4, $s4, $s1	# top center
+	add $s5, $s5, $s4
+	
+	lbu $s4, buffer+3($t3)
+	mul $s4, $s4, $s2	# top right = top center
+	add $s5, $s5, $s4
+	
+	sub $t3, $t3, $t8
+
+	add $t3, $t3, 3
+
+	###### END ############
+
+	# Calculate new pixel's byte value:
+	div $s5, $s3		
+	mflo $s4		
+	
+	# Store this value in outbuffer:
+	sb $s4, outbuffer($t3)
+	
+	# Go to the next right edge pixel's byte
+	add $t3, $t3, 1
+	blt $t3, $t6, rightEdgePixel
+
+
+
 	
 	# Increment row
 	add  $t3, $t3, $t9  
-	addi $t3, $t3, 6
-	blt  $t3, $t7, nextRow
-	
-	
-	
+	blt  $t3, $t5, nextRow
+		
 	# Write header to output file:
 	move $a0, $t1        # output file descriptor 
 	la   $a1, outbuffer  # address of buffer from which to write

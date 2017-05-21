@@ -739,7 +739,253 @@ incrementRow:
 
 	# If total number of bytes read equals bitmap_size it is the last block
 	lw  $t5, size
-	beq $t2, $t5, writeToFile
+	beq $t2, $t5, lastRowInit
+
+
+lastRowInit:
+	# Calculate start of inner row position
+	add $t6, $t3, 3
+
+  	# Calculate end of inner row position:
+  	add $t4, $t3, $t8	# Start of row + row size 
+  	sub $t4, $t4, $t9 	# - padding 
+  	sub $t4, $t4, 3		# - 1 pixel
+
+lastRowLeftEdgePixel:
+	##### START ##########
+
+	add $s4, $t7, $t3
+	lbu $s4, ($s4)
+	mul $s4, $s4, EDGE_FACTOR 	# middle left = center
+	move $s5, $s4
+	add $s5, $s5, $s4			# top center = center
+
+	add $s4, $t7, $t3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CENTER_FACTOR	# center
+	add $s5, $s5, $s4
+	
+	add $s4, $t7, $t3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CORNER_FACTOR	# top left = center
+	add $s5, $s5, $s4
+
+	add $s4, $t7, $t3
+	add $s4, $s4, 3
+	lbu $s4, ($s4)
+	mul $s4, $s4, EDGE_FACTOR	# middle right
+	add $s5, $s5, $s4
+
+	add $s4, $t7, $t3
+	add $s4, $s4, 3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CORNER_FACTOR	# top right = middle right
+	add $s5, $s5, $s4
+	
+	#######################
+	
+	sub $t3, $t3, $t8
+	
+	add $s4, $t7, $t3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CORNER_FACTOR 	# bottom left = bottom center
+	add $s5, $s5, $s4
+	
+	add $s4, $t7, $t3
+	lbu $s4, ($s4)
+	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	add $s5, $s5, $s4
+	
+	add $s4, $t7, $t3
+	add $s4, $s4, 3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CORNER_FACTOR	# bottom right
+	add $s5, $s5, $s4
+	
+	add $t3, $t3, $t8
+
+	###### END ############
+
+	# Calculate new pixel's byte value:
+	div $s5, $s3		
+	mflo $s4		
+	
+	# Store this value in outbuffer:
+	sb $s4, outbuffer($t3)
+	
+	# Go to the next left edge pixel's byte
+	add $t3, $t3, 1
+	blt $t3, $t6, lastRowLeftEdgePixel
+
+	# Calculate start of padding position
+	add $t6, $t4, 3
+
+
+lastRowMiddlePixels:
+	##### START ##########
+	sub $t3, $t3, 3
+
+	add $s4, $t7, $t3
+	lbu $s4, ($s4)
+	mul $s4, $s4, EDGE_FACTOR 	# middle left 
+	move $s5, $s4
+
+	add $s4, $t7, $t3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CORNER_FACTOR 	# top left = middle left
+	add $s5, $s5, $s4
+	
+	add $s4, $t7, $t3
+	add $s4, $s4, 3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CENTER_FACTOR	# center
+	add $s5, $s5, $s4
+
+	add $s4, $t7, $t3
+	add $s4, $s4, 3
+	lbu $s4, ($s4)
+	mul $s4, $s4, EDGE_FACTOR	# top center = center
+	add $s5, $s5, $s4
+	
+	add $s4, $t7, $t3
+	add $s4, $s4, 6
+	lbu $s4, ($s4)
+	mul $s4, $s4, EDGE_FACTOR	# middle right
+	add $s5, $s5, $s4
+
+	add $s4, $t7, $t3
+	add $s4, $s4, 6
+	lbu $s4, ($s4)
+	mul $s4, $s4, CORNER_FACTOR	# top right = middle right
+	add $s5, $s5, $s4
+
+	#######################
+	
+	sub $t3, $t3, $t8
+	
+	add $s4, $t7, $t3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CORNER_FACTOR # bottom left
+	add $s5, $s5, $s4
+	
+	add $s4, $t7, $t3
+	add $s4, $s4, 3
+	lbu $s4, ($s4)
+	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	add $s5, $s5, $s4
+	
+	add $s4, $t7, $t3
+	add $s4, $s4, 6
+	lbu $s4, ($s4)
+	mul $s4, $s4, CORNER_FACTOR	# bottom right
+	add $s5, $s5, $s4
+	
+	add $t3, $t3, $t8
+
+	add $t3, $t3, 3
+
+	###### END ############
+
+	# Calculate new pixel's byte value:
+	div $s5, $s3		
+	mflo $s4		
+	
+	# Store this value in outbuffer:
+	sb $s4, outbuffer($t3)
+	
+	# Increment byte
+	add $t3, $t3, 1
+	blt $t3, $t4, lastRowMiddlePixels
+
+lastRowRightEdgePixel:
+	##### START ##########
+	sub $t3, $t3, 3
+
+	add $s4, $t7, $t3
+	lbu $s4, ($s4)
+	mul $s4, $s4, EDGE_FACTOR 	# middle left 
+	move $s5, $s4
+
+	add $s4, $t7, $t3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CORNER_FACTOR # top left = middle left 
+	add $s5, $s5, $s4
+
+	
+	add $s4, $t7, $t3
+	add $s4, $s4, 3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CENTER_FACTOR	# center
+	add $s5, $s5, $s4
+	
+	add $s4, $t7, $t3
+	add $s4, $s4, 3
+	lbu $s4, ($s4)
+	mul $s4, $s4, EDGE_FACTOR	# middle right = center
+	add $s5, $s5, $s4
+	add $s5, $s5, $s4			# top center = center
+
+	add $s4, $t7, $t3
+	add $s4, $s4, 3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CORNER_FACTOR	# top right = center
+	add $s5, $s5, $s4
+
+	#######################
+	
+	sub $t3, $t3, $t8
+	
+	add $s4, $t7, $t3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CORNER_FACTOR 	# bottom left
+	add $s5, $s5, $s4
+	
+	add $s4, $t7, $t3
+	add $s4, $s4, 3
+	lbu $s4, ($s4)
+	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	add $s5, $s5, $s4
+	
+	add $s4, $t7, $t3
+	add $s4, $s4, 3
+	lbu $s4, ($s4)
+	mul $s4, $s4, CORNER_FACTOR	# bottom right = bottom center
+	add $s5, $s5, $s4
+	
+	add $t3, $t3, $t8
+
+	add $t3, $t3, 3
+
+	###### END ############
+
+	# Calculate new pixel's byte value:
+	div $s5, $s3		
+	mflo $s4		
+	
+	# Store this value in outbuffer:
+	sb $s4, outbuffer($t3)
+	
+	# Go to the next right edge pixel's byte
+	add $t3, $t3, 1
+	blt $t3, $t6, lastRowRightEdgePixel
+
+	## Increment row
+	add  $t3, $t3, $t9  	# advance current position by the number of padding bytes
+
+
+	# Here we decide whether to change the buffer and continue processing the middle rows of the image 
+	# or to jump to processing the final row 
+	
+	# Suppose we are pocessing the first block
+	# In our outbuffer we have first row and rows up until n-1 (n being the number of rows that fit into that buffer)
+	# We need to write to file from the start of the outbuffer
+	
+	# Suppose we are processing second or higher block of bitmap in our outbuffer we have rows from 2 to n-1
+	# We need to write to file from the 2nd row of the outbuffer 
+	
+	# Suppose we are processing the final block
+	# In outbuffer we have rows from the 2nd to the n'th
+	# We need to write to file from the 2nd oud row of the outbuffer
 
 
 writeToFile:

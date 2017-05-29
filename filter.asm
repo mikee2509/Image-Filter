@@ -5,23 +5,24 @@
 .eqv CORNER_FACTOR  1
 .eqv BUFFER_SIZE	9000
 		
-header:		.space 56
-buffer:		.space BUFFER_SIZE
-buffer2:	.space BUFFER_SIZE
-outbuffer:	.space BUFFER_SIZE
-size:		.space 4
+header:			.space 56
+buffer:			.space BUFFER_SIZE
+buffer2:		.space BUFFER_SIZE
+outbuffer:		.space BUFFER_SIZE
+size:			.space 4
+inputPath:		.space 80
+outputPath:	 	.space 80
 
-welcomeMsg:		.asciiz "High Pass / Low Pass filter\n   Michal Sieczkowski 04.2017\n\n"
-openedMsg:		.asciiz "File opened\n"
-fileErrorMsg:	.asciiz "Error opening/reading file\n"
-headerErrorMsg:	.asciiz "Error in file header\n"
-inFileName:		.asciiz "image.bmp"
-outFileName:	.asciiz "image_out.bmp"
-
-widthMsg: 		.asciiz "Width: "
-heightMsg: 		.asciiz "\nHeight: "
-sizeMsg:		.asciiz "\nSize: "
-newLineMsg:		.asciiz "\n"
+msgWelcome:		.asciiz "High Pass / Low Pass filter\n   Michal Sieczkowski 04.2017\n\n"
+msgInput:		.asciiz "Input file: "
+msgOutput:		.asciiz "Output file: "
+msgOpened:		.asciiz "Files opened\n"
+msgFileError:		.asciiz "Error opening/reading file\n"
+msgHeaderError:		.asciiz "Error in file header\n"
+msgWidth: 		.asciiz "Width: "
+msgHeight: 		.asciiz "\nHeight: "
+msgSize:		.asciiz "\nSize: "
+msgNewLine:		.asciiz "\n"
 
 
 .text
@@ -29,9 +30,55 @@ newLineMsg:		.asciiz "\n"
 
 main:
 	# Welcome message:
-	la $a0, welcomeMsg
+	la $a0, msgWelcome
 	li $v0, 4
 	syscall
+
+	# --------------------------  Reading file paths  ---------------------------
+
+getInputPath:
+	# Print message
+	li $v0, 4	
+	la $a0, msgInput  
+	syscall
+	# Get path
+	li $v0, 8 	
+	la $a0, inputPath 
+	li $a1, 80 
+	syscall
+	# Copy path address
+	move $s0, $a0
+
+loopFixInputPath:
+	lb $t0, ($a0)
+	beq $t0, 0xA, delNewlineInputPath
+	addi $a0, $a0, 1
+	b loopFixInputPath
+	
+delNewlineInputPath:
+	sb $zero, ($a0) 
+	
+getOutputPath:
+	# Print message
+	li $v0, 4	
+	la $a0, msgOutput  
+	syscall
+	# Get path
+	li $v0, 8 	
+	la $a0, outputPath 
+	li $a1, 80 
+	syscall
+	# Copy path address
+	add $s1, $a0, $zero
+	
+loopFixOutputPath:
+	lb $t0, ($a0)
+	beq $t0, 0xA, delNewlineOutputPath
+	addi $a0, $a0, 1
+	b loopFixOutputPath
+	
+delNewlineOutputPath:
+	sb $zero, ($a0) 
 	
 	
 	# ----------------------------  Opening files  -----------------------------
@@ -40,7 +87,7 @@ main:
 	# --------------------------------------------------------------------------
 	
 	# Open input file for reading:
-	la $a0, inFileName	# file name
+	la $a0, inputPath	# file name
 	li $a1, 0			# open for reading only
 	li $a2, 0			# mode is ignored
 	li $v0, 13			# open file
@@ -51,7 +98,7 @@ main:
 	
 	
 	# Open output file for writing:
-	la $a0, outFileName	# file name
+	la $a0, outputPath	# file name
 	li $a1, 1			# open for writing
 	li $a2, 0			# mode is ignored
 	li $v0, 13			# open file
@@ -62,7 +109,7 @@ main:
 	
 	
 	# Success opening files message:
-	la $a0, openedMsg
+	la $a0, msgOpened
 	li $v0, 4
 	syscall
 	
@@ -107,7 +154,7 @@ main:
 	sw  $s0, size		# store image bitmap size
 	
 	# Print image width
-	la $a0, widthMsg 	
+	la $a0, msgWidth 	
 	li $v0, 4
 	syscall
 	li $v0, 1
@@ -115,7 +162,7 @@ main:
 	syscall
 	
 	# Print image height
-	la $a0, heightMsg 	
+	la $a0, msgHeight 	
 	li $v0, 4
 	syscall
 	li $v0, 1
@@ -123,7 +170,7 @@ main:
 	syscall
 	
 	# Print bitmap size in bytes
-	la $a0, sizeMsg 	
+	la $a0, msgSize 	
 	li $v0, 4
 	syscall
 	li $v0, 1
@@ -131,7 +178,7 @@ main:
 	syscall
 	
 	# Print new line
-	la $a0, newLineMsg 	
+	la $a0, msgNewLine 	
 	li $v0, 4
 	syscall
 
@@ -1549,14 +1596,14 @@ exit:
 
 	
 fileError:
-	la $a0, fileErrorMsg 	# Error opening file message
+	la $a0, msgFileError 	# Error opening file message
 	li $v0, 4
 	syscall
 	
 	b exit
 	
 headerError:
-	la $a0, headerErrorMsg 	# Error opening file message
+	la $a0, msgHeaderError 	# Error opening file message
 	li $v0, 4
 	syscall
 	

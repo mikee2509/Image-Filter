@@ -1,8 +1,5 @@
 .data
 
-.eqv CENTER_FACTOR  1
-.eqv EDGE_FACTOR    1
-.eqv CORNER_FACTOR  1
 .eqv BUFFER_SIZE	9000
 		
 header:			.space 56
@@ -10,15 +7,21 @@ buffer:			.space BUFFER_SIZE
 buffer2:		.space BUFFER_SIZE
 outbuffer:		.space BUFFER_SIZE
 size:			.space 4
+inFileDesc:		.space 4
+outFileDesc:	.space 4
 inputPath:		.space 80
 outputPath:	 	.space 80
+readOverall:	.space 4
 
 msgWelcome:		.asciiz "High Pass / Low Pass filter\n   Michal Sieczkowski 04.2017\n\n"
 msgInput:		.asciiz "Input file: "
 msgOutput:		.asciiz "Output file: "
-msgOpened:		.asciiz "Files opened\n"
-msgFileError:		.asciiz "Error opening/reading file\n"
-msgHeaderError:		.asciiz "Error in file header\n"
+msgOpened:		.asciiz "Files opened successfully!\n\n"
+msgFileError:	.asciiz "Error opening/reading file\n"
+msgHeaderError:	.asciiz "Error in file header\n"
+msgCenter:		.asciiz "Center factor: "
+msgEdge:		.asciiz "Edge factor: "
+msgCorner:		.asciiz "Corner factor: "
 msgWidth: 		.asciiz "Width: "
 msgHeight: 		.asciiz "\nHeight: "
 msgSize:		.asciiz "\nSize: "
@@ -33,6 +36,7 @@ main:
 	la $a0, msgWelcome
 	li $v0, 4
 	syscall
+
 
 	# --------------------------  Reading file paths  ---------------------------
 
@@ -113,8 +117,42 @@ delNewlineOutputPath:
 	li $v0, 4
 	syscall
 	
+
+	# --------------------------  Reading factors  -----------------------------
+	# $s3 - center factor
+	# $s4 - edge factor
+	# $s5 - corner factor
+	# --------------------------------------------------------------------------
+
+
+	# Print message
+	li $v0, 4	
+	la $a0, msgCenter 
+	syscall
+	# Read center factor
+	li $v0, 5
+	syscall
+	move $s3, $v0
+
+	# Print message
+	li $v0, 4	
+	la $a0, msgEdge 
+	syscall
+	# Read edge factor
+	li $v0, 5
+	syscall
+	move $s4, $v0
+
+	# Print message
+	li $v0, 4	
+	la $a0, msgCorner 
+	syscall
+	# Read corner factor
+	li $v0, 5
+	syscall
+	move $s5, $v0
 	
-	
+
 	# ------------------------  Header processing  -----------------------------
 	# $t8 - row size
 	# $t9 - padding
@@ -211,17 +249,25 @@ delNewlineOutputPath:
 	li   $a2, 54         # header length
 	li   $v0, 15         # write to file
 	syscall
-	
-	
+
+
+	# Save file descriptors
+	sw $t0, inFileDesc
+	sw $t1, outFileDesc
+
+	# Move factors to new registers
+	move $t0, $s3
+	move $t1, $s4
+	move $t2, $s5
 	
 	# ------------------------  Bitmap processing  ----------------------------------
 	# Filter mask:
-	#  | CORNER |  EDGE  | CORNER |
-	#  |  EDGE  | CENTER |  EDGE  |
-	#  | CORNER |  EDGE  | CORNER |
+	#  | $t2 | $t1 | $t2 |
+	#  | $t1 | #t0 | $t1 |
+	#  | $t2 | $t1 | $t2 |
 	#
 	# $s0 - size of bitmap in bytes
-	# $s1 - temp
+	# $s1 - temp / currently used buffer
 	# $s2 - currently used buffer
 	# $s3 - sum of factors
 	# $s4 - value of single byte of pixel in mask
@@ -229,7 +275,10 @@ delNewlineOutputPath:
 	# $s6 - number of bytes to read
 	# $s7 - number of bytes read
 	#
-	# $t2 - number of bytes read overall
+	# $t0 - center factor
+	# $t1 - edge factor
+	# $t2 - corner factor
+	#
 	# $t3 - current byte of bitmap
 	# $t4 - end of inner row position (a)
 	# $t5 - end of middle rows position (b) / temp in transition 
@@ -256,12 +305,12 @@ delNewlineOutputPath:
 	
 
 	# Calculate sum of factors
-	li $s1, EDGE_FACTOR
-	mul $s3, $s1, 4
-	li $s1, CORNER_FACTOR
-	mul $s2, $s1, 4		
-	add $s3, $s3, $s2
-	add $s3, $s3, CENTER_FACTOR
+	move $s1, $t1
+	mul  $s3, $s1, 4
+	move $s1, $t2
+	mul  $s2, $s1, 4		
+	add  $s3, $s3, $s2
+	add  $s3, $s3, $t0
 
 	
 
@@ -275,8 +324,8 @@ delNewlineOutputPath:
 	mul $s6, $s6, $t8
 
 
-	# Make sure $t2 and $t7 are zero
-	move $t2, $zero
+	# Make sure readOverall and $t7 are zero
+	sw $zero, readOverall
 	move $t7, $zero
 
 	# Load bitmap size
@@ -287,7 +336,7 @@ delNewlineOutputPath:
 
 readFirstBlockToBuffer:
 	# Read to buffer:
-  	move $a0, $t0     			# input file descriptor
+  	lw 	 $a0, inFileDesc		# input file descriptor
 	move $a1, $s2   			# input buffer address
   	move $a2, $s6				# max num of characters to read
   	li   $v0, 14  	 			# read from file
@@ -297,7 +346,9 @@ readFirstBlockToBuffer:
 
 
   	# Advance the total-bytes-read counter
-  	add $t2, $t2, $s7
+  	lw $s4, readOverall
+  	add $s4, $s4, $s7
+  	sw $s4, readOverall
 
   	# Calculate end of middle rows position
 	sub $t5, $s7, $t8	# $t5 = bytes_read - row_size
@@ -326,39 +377,39 @@ bottomLeftCornerPixel:
 	##### START FILTERING #####
 
 	lbu $s4, buffer($t3)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left = center
+	mul $s4, $s4, $t1 	# middle left = center
 	move $s5, $s4
 	add $s5, $s5, $s4			# bottom center = center
 
 	lbu $s4, buffer($t3)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	lbu $s4, buffer($t3)
-	mul $s4, $s4, CORNER_FACTOR	# bottom left = center
+	mul $s4, $s4, $t2	# bottom left = center
 	add $s5, $s5, $s4
 
 	lbu $s4, buffer+3($t3)
-	mul $s4, $s4, EDGE_FACTOR	# middle right
+	mul $s4, $s4, $t1	# middle right
 	add $s5, $s5, $s4
 
 	lbu $s4, buffer+3($t3)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right = middle right
+	mul $s4, $s4, $t2	# bottom right = middle right
 	add $s5, $s5, $s4
 	
 	############################	
 	add $t3, $t3, $t8
 	
 	lbu $s4, buffer($t3)
-	mul $s4, $s4, CORNER_FACTOR 	# top left = top center
+	mul $s4, $s4, $t2 	# top left = top center
 	add $s5, $s5, $s4
 	
 	lbu $s4, buffer($t3)
-	mul $s4, $s4, EDGE_FACTOR	# top center
+	mul $s4, $s4, $t1	# top center
 	add $s5, $s5, $s4
 	
 	lbu $s4, buffer+3($t3)
-	mul $s4, $s4, CORNER_FACTOR	# top right
+	mul $s4, $s4, $t2	# top right
 	add $s5, $s5, $s4
 	
 	sub $t3, $t3, $t8
@@ -385,27 +436,27 @@ bottomEdgeMiddlePixels:
 	sub $t3, $t3, 3
 
 	lbu $s4, buffer($t3)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left 
+	mul $s4, $s4, $t1 	# middle left 
 	move $s5, $s4
 
 	lbu $s4, buffer($t3)
-	mul $s4, $s4, CORNER_FACTOR 	# bottom left = middle left
+	mul $s4, $s4, $t2 	# bottom left = middle left
 	add $s5, $s5, $s4
 	
 	lbu $s4, buffer+3($t3)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 
 	lbu $s4, buffer+3($t3)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center = center
+	mul $s4, $s4, $t1	# bottom center = center
 	add $s5, $s5, $s4
 	
 	lbu $s4, buffer+6($t3)
-	mul $s4, $s4, EDGE_FACTOR	# middle right
+	mul $s4, $s4, $t1	# middle right
 	add $s5, $s5, $s4
 
 	lbu $s4, buffer+6($t3)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right = middle right
+	mul $s4, $s4, $t2	# bottom right = middle right
 	add $s5, $s5, $s4
 
 	############################
@@ -413,15 +464,15 @@ bottomEdgeMiddlePixels:
 	add $t3, $t3, $t8
 	
 	lbu $s4, buffer($t3)
-	mul $s4, $s4, CORNER_FACTOR 	# top left
+	mul $s4, $s4, $t2 	# top left
 	add $s5, $s5, $s4
 	
 	lbu $s4, buffer+3($t3)
-	mul $s4, $s4, EDGE_FACTOR	# top center
+	mul $s4, $s4, $t1	# top center
 	add $s5, $s5, $s4
 	
 	lbu $s4, buffer+6($t3)
-	mul $s4, $s4, CORNER_FACTOR	# top right
+	mul $s4, $s4, $t2	# top right
 	add $s5, $s5, $s4
 	
 	sub $t3, $t3, $t8
@@ -447,25 +498,25 @@ bottomRightCornerPixel:
 	sub $t3, $t3, 3
 
 	lbu $s4, buffer($t3)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left 
+	mul $s4, $s4, $t1 	# middle left 
 	move $s5, $s4
 
 	lbu $s4, buffer($t3)
-	mul $s4, $s4, CORNER_FACTOR # bottom left = middle left 
+	mul $s4, $s4, $t2 # bottom left = middle left 
 	add $s5, $s5, $s4
 
 	
 	lbu $s4, buffer+3($t3)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	lbu $s4, buffer+3($t3)
-	mul $s4, $s4, EDGE_FACTOR	# middle right = center
+	mul $s4, $s4, $t1	# middle right = center
 	add $s5, $s5, $s4
 	add $s5, $s5, $s4			# bottom center = center
 
 	lbu $s4, buffer+3($t3)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right = center
+	mul $s4, $s4, $t2	# bottom right = center
 	add $s5, $s5, $s4
 
 	############################
@@ -473,15 +524,15 @@ bottomRightCornerPixel:
 	add $t3, $t3, $t8
 	
 	lbu $s4, buffer($t3)
-	mul $s4, $s4, CORNER_FACTOR 	# top left
+	mul $s4, $s4, $t2 	# top left
 	add $s5, $s5, $s4
 	
 	lbu $s4, buffer+3($t3)
-	mul $s4, $s4, EDGE_FACTOR	# top center
+	mul $s4, $s4, $t1	# top center
 	add $s5, $s5, $s4
 	
 	lbu $s4, buffer+3($t3)
-	mul $s4, $s4, CORNER_FACTOR	# top right = top center
+	mul $s4, $s4, $t2	# top right = top center
 	add $s5, $s5, $s4
 	
 	sub $t3, $t3, $t8
@@ -518,18 +569,18 @@ leftEdgePixel:
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left = center
+	mul $s4, $s4, $t1 	# middle left = center
 	move $s5, $s4
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# middle right
+	mul $s4, $s4, $t1	# middle right
 	add $s5, $s5, $s4
 	
 	############################
@@ -538,18 +589,18 @@ leftEdgePixel:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# bottom left = bottom center
+	mul $s4, $s4, $t2 	# bottom left = bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	mul $s4, $s4, $t1	# bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right
+	mul $s4, $s4, $t2	# bottom right
 	add $s5, $s5, $s4
 	
 	add $t3, $t3, $t8
@@ -560,18 +611,18 @@ leftEdgePixel:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# top left = top center
+	mul $s4, $s4, $t2 	# top left = top center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# top center
+	mul $s4, $s4, $t1	# top center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top right
+	mul $s4, $s4, $t2	# top right
 	add $s5, $s5, $s4
 	
 	sub $t3, $t3, $t8
@@ -599,19 +650,19 @@ middlePixels:
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left 
+	mul $s4, $s4, $t1 	# middle left 
 	move $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 6
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# middle right
+	mul $s4, $s4, $t1	# middle right
 	add $s5, $s5, $s4
 	
 	############################
@@ -620,19 +671,19 @@ middlePixels:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# bottom left
+	mul $s4, $s4, $t2 	# bottom left
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	mul $s4, $s4, $t1	# bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 6
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right
+	mul $s4, $s4, $t2	# bottom right
 	add $s5, $s5, $s4
 	
 	add $t3, $t3, $t8
@@ -643,19 +694,19 @@ middlePixels:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# top left
+	mul $s4, $s4, $t2 	# top left
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# top center
+	mul $s4, $s4, $t1	# top center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 6
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top right
+	mul $s4, $s4, $t2	# top right
 	add $s5, $s5, $s4
 	
 	sub $t3, $t3, $t8
@@ -682,19 +733,19 @@ rightEdgePixel:
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left 
+	mul $s4, $s4, $t1 	# middle left 
 	move $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# middle right = center
+	mul $s4, $s4, $t1	# middle right = center
 	add $s5, $s5, $s4
 	
 	############################
@@ -703,19 +754,19 @@ rightEdgePixel:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# bottom left
+	mul $s4, $s4, $t2 	# bottom left
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	mul $s4, $s4, $t1	# bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right = bottom center
+	mul $s4, $s4, $t2	# bottom right = bottom center
 	add $s5, $s5, $s4
 	
 	add $t3, $t3, $t8
@@ -726,19 +777,19 @@ rightEdgePixel:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# top left
+	mul $s4, $s4, $t2 	# top left
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# top center
+	mul $s4, $s4, $t1	# top center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top right = top center
+	mul $s4, $s4, $t2	# top right = top center
 	add $s5, $s5, $s4
 	
 	sub $t3, $t3, $t8
@@ -784,7 +835,7 @@ changeToBuffer2:
 
 readNextBlockToBuffer:
 	# Read to buffer:
-  	move $a0, $t0     		# input file descriptor
+  	lw $a0, inFileDesc     	# input file descriptor
 	move $a1, $s2   		# input buffer address
   	move $a2, $s6			# max num of characters to read
   	li   $v0, 14  	 		# read from file
@@ -793,11 +844,13 @@ readNextBlockToBuffer:
   	bltz $s7, fileError
 
   	# Advance the total bytes read counter
-  	add $t2, $t2, $s7
-
+  	lw $s4, readOverall
+  	add $s4, $s4, $s7
+  	sw $s4, readOverall
+  	
   	# If (bitmap_size - number of bytes read overall) is less or equal to the 'number 
   	# of bytes to read to the buffer' we have read the last block
-  	sub $t5, $s0, $t2
+  	sub $t5, $s0, $s4
   	add $t5, $t5, $s6
   	ble $t5, $s6, changeState
 
@@ -823,18 +876,18 @@ lastRowLeftEdgePixel:
 
 	add $s4, $s1, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left = center
+	mul $s4, $s4, $t1 	# middle left = center
 	move $s5, $s4
 	
 	add $s4, $s1, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# middle right
+	mul $s4, $s4, $t1	# middle right
 	add $s5, $s5, $s4
 	
 	############################
@@ -843,18 +896,18 @@ lastRowLeftEdgePixel:
 	
 	add $s4, $s1, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# bottom left = bottom center
+	mul $s4, $s4, $t2 	# bottom left = bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	mul $s4, $s4, $t1	# bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right
+	mul $s4, $s4, $t2	# bottom right
 	add $s5, $s5, $s4
 	
 	add $t3, $t3, $t8
@@ -865,18 +918,18 @@ lastRowLeftEdgePixel:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# top left = top center
+	mul $s4, $s4, $t2 	# top left = top center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# top center
+	mul $s4, $s4, $t1	# top center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top right
+	mul $s4, $s4, $t2	# top right
 	add $s5, $s5, $s4
 	
 	add $t3, $t3, $t5
@@ -904,19 +957,19 @@ lastRowMiddlePixels:
 
 	add $s4, $s1, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left 
+	mul $s4, $s4, $t1 	# middle left 
 	move $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 6
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# middle right
+	mul $s4, $s4, $t1	# middle right
 	add $s5, $s5, $s4
 	
 	############################	
@@ -925,19 +978,19 @@ lastRowMiddlePixels:
 	
 	add $s4, $s1, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# bottom left
+	mul $s4, $s4, $t2 	# bottom left
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	mul $s4, $s4, $t1	# bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 6
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right
+	mul $s4, $s4, $t2	# bottom right
 	add $s5, $s5, $s4
 	
 	add $t3, $t3, $t8
@@ -948,19 +1001,19 @@ lastRowMiddlePixels:
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# top left
+	mul $s4, $s4, $t2 	# top left
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# top center
+	mul $s4, $s4, $t1	# top center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 6
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top right
+	mul $s4, $s4, $t2	# top right
 	add $s5, $s5, $s4
 	
 	add $t3, $t3, $t5
@@ -987,19 +1040,19 @@ lastRowRightEdgePixel:
 
 	add $s4, $s1, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left 
+	mul $s4, $s4, $t1 	# middle left 
 	move $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# middle right = center
+	mul $s4, $s4, $t1	# middle right = center
 	add $s5, $s5, $s4
 	
 	############################
@@ -1008,19 +1061,19 @@ lastRowRightEdgePixel:
 	
 	add $s4, $s1, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# bottom left
+	mul $s4, $s4, $t2 	# bottom left
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	mul $s4, $s4, $t1	# bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right = bottom center
+	mul $s4, $s4, $t2	# bottom right = bottom center
 	add $s5, $s5, $s4
 	
 	add $t3, $t3, $t8
@@ -1031,19 +1084,19 @@ lastRowRightEdgePixel:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# top left
+	mul $s4, $s4, $t2 	# top left
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# top center
+	mul $s4, $s4, $t1	# top center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top right = top center
+	mul $s4, $s4, $t2	# top right = top center
 	add $s5, $s5, $s4
 	
 	add $t3, $t3, $t5
@@ -1066,7 +1119,7 @@ lastRowRightEdgePixel:
 
 writeToFile2:
 	# Write bitmap to output file:
-	move $a0, $t1        	 	# output file descriptor 
+	lw   $a0, outFileDesc		# output file descriptor 
 	la   $a1, outbuffer	 		# address of buffer from which to write
 	move $a2, $s6		 	 	# buffer length
 	li   $v0, 15				# write to file
@@ -1089,18 +1142,18 @@ firstRowLeftEdgePixel:
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left = center
+	mul $s4, $s4, $t1 	# middle left = center
 	move $s5, $s4
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# middle right
+	mul $s4, $s4, $t1	# middle right
 	add $s5, $s5, $s4
 	
 	############################
@@ -1109,18 +1162,18 @@ firstRowLeftEdgePixel:
 	
 	add $s4, $s1, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# bottom left = bottom center
+	mul $s4, $s4, $t2 	# bottom left = bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	mul $s4, $s4, $t1	# bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right
+	mul $s4, $s4, $t2	# bottom right
 	add $s5, $s5, $s4
 	
 	sub $t3, $t3, $t5
@@ -1131,18 +1184,18 @@ firstRowLeftEdgePixel:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# top left = top center
+	mul $s4, $s4, $t2 	# top left = top center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# top center
+	mul $s4, $s4, $t1	# top center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top right
+	mul $s4, $s4, $t2	# top right
 	add $s5, $s5, $s4
 	
 	sub $t3, $t3, $t8
@@ -1170,19 +1223,19 @@ firstRowMiddlePixels:
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left 
+	mul $s4, $s4, $t1 	# middle left 
 	move $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 6
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# middle right
+	mul $s4, $s4, $t1	# middle right
 	add $s5, $s5, $s4
 	
 	############################	
@@ -1191,19 +1244,19 @@ firstRowMiddlePixels:
 	
 	add $s4, $s1, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# bottom left
+	mul $s4, $s4, $t2 	# bottom left
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	mul $s4, $s4, $t1	# bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 6
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right
+	mul $s4, $s4, $t2	# bottom right
 	add $s5, $s5, $s4
 	
 	sub $t3, $t3, $t5
@@ -1214,19 +1267,19 @@ firstRowMiddlePixels:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# top left
+	mul $s4, $s4, $t2 	# top left
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# top center
+	mul $s4, $s4, $t1	# top center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 6
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top right
+	mul $s4, $s4, $t2	# top right
 	add $s5, $s5, $s4
 	
 	sub $t3, $t3, $t8
@@ -1253,19 +1306,19 @@ firstRowRightEdgePixel:
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left 
+	mul $s4, $s4, $t1 	# middle left 
 	move $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# middle right = center
+	mul $s4, $s4, $t1	# middle right = center
 	add $s5, $s5, $s4
 	
 	############################
@@ -1274,19 +1327,19 @@ firstRowRightEdgePixel:
 	
 	add $s4, $s1, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# bottom left
+	mul $s4, $s4, $t2 	# bottom left
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	mul $s4, $s4, $t1	# bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s1, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right = bottom center
+	mul $s4, $s4, $t2	# bottom right = bottom center
 	add $s5, $s5, $s4
 	
 	sub $t3, $t3, $t5
@@ -1297,19 +1350,19 @@ firstRowRightEdgePixel:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# top left
+	mul $s4, $s4, $t2 	# top left
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# top center
+	mul $s4, $s4, $t1	# top center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top right = top center
+	mul $s4, $s4, $t2	# top right = top center
 	add $s5, $s5, $s4
 	
 	sub $t3, $t3, $t8
@@ -1354,30 +1407,30 @@ topLeftCornerPixel:
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left = center
+	mul $s4, $s4, $t1 	# middle left = center
 	move $s5, $s4
 	add $s5, $s5, $s4			# top center = center
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top left = center
+	mul $s4, $s4, $t2	# top left = center
 	add $s5, $s5, $s4
 
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# middle right
+	mul $s4, $s4, $t1	# middle right
 	add $s5, $s5, $s4
 
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top right = middle right
+	mul $s4, $s4, $t2	# top right = middle right
 	add $s5, $s5, $s4
 	
 	############################
@@ -1386,18 +1439,18 @@ topLeftCornerPixel:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# bottom left = bottom center
+	mul $s4, $s4, $t2 	# bottom left = bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	mul $s4, $s4, $t1	# bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right
+	mul $s4, $s4, $t2	# bottom right
 	add $s5, $s5, $s4
 	
 	add $t3, $t3, $t8
@@ -1425,36 +1478,36 @@ topEdgeMiddlePixels:
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left 
+	mul $s4, $s4, $t1 	# middle left 
 	move $s5, $s4
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# top left = middle left
+	mul $s4, $s4, $t2 	# top left = middle left
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# top center = center
+	mul $s4, $s4, $t1	# top center = center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 6
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# middle right
+	mul $s4, $s4, $t1	# middle right
 	add $s5, $s5, $s4
 
 	add $s4, $s2, $t3
 	add $s4, $s4, 6
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top right = middle right
+	mul $s4, $s4, $t2	# top right = middle right
 	add $s5, $s5, $s4
 
 	############################
@@ -1463,19 +1516,19 @@ topEdgeMiddlePixels:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR # bottom left
+	mul $s4, $s4, $t2 # bottom left
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	mul $s4, $s4, $t1	# bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 6
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right
+	mul $s4, $s4, $t2	# bottom right
 	add $s5, $s5, $s4
 	
 	add $t3, $t3, $t8
@@ -1502,32 +1555,32 @@ topRightCornerPixel:
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR 	# middle left 
+	mul $s4, $s4, $t1 	# middle left 
 	move $s5, $s4
 
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR # top left = middle left 
+	mul $s4, $s4, $t2 # top left = middle left 
 	add $s5, $s5, $s4
 
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CENTER_FACTOR	# center
+	mul $s4, $s4, $t0	# center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# middle right = center
+	mul $s4, $s4, $t1	# middle right = center
 	add $s5, $s5, $s4
 	add $s5, $s5, $s4			# top center = center
 
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# top right = center
+	mul $s4, $s4, $t2	# top right = center
 	add $s5, $s5, $s4
 
 	############################
@@ -1536,19 +1589,19 @@ topRightCornerPixel:
 	
 	add $s4, $s2, $t3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR 	# bottom left
+	mul $s4, $s4, $t2 	# bottom left
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, EDGE_FACTOR	# bottom center
+	mul $s4, $s4, $t1	# bottom center
 	add $s5, $s5, $s4
 	
 	add $s4, $s2, $t3
 	add $s4, $s4, 3
 	lbu $s4, ($s4)
-	mul $s4, $s4, CORNER_FACTOR	# bottom right = bottom center
+	mul $s4, $s4, $t2	# bottom right = bottom center
 	add $s5, $s5, $s4
 	
 	add $t3, $t3, $t8
@@ -1574,7 +1627,7 @@ topRightCornerPixel:
 
 writeToFile:
 	# Write bitmap to output file:
-	move $a0, $t1        	 	# output file descriptor 
+	lw   $a0, outFileDesc  	 	# output file descriptor 
 	la   $a1, outbuffer	 		# address of buffer from which to write
 	move $a2, $s7		 	 	# buffer length
 	li   $v0, 15				# write to file
@@ -1582,12 +1635,12 @@ writeToFile:
 	
 exit:	
 	# Close opened files:
-	move $a0, $t0      # input file descriptor to close
-	li   $v0, 16       # close file 
+	lw $a0, inFileDesc    # input file descriptor to close
+	li $v0, 16       	  # close file 
 	syscall
 	
-	move $a0, $t1      # output file descriptor to close
-	li   $v0, 16       # close file 
+	lw $a0, outFileDesc   # output file descriptor to close
+	li $v0, 16       	  # close file 
 	syscall            
 	
 	# Exit program:

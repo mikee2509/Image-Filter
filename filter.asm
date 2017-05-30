@@ -365,13 +365,7 @@ oneBlockBitmap:
 	li $t7, 1
 
 bottomEdgeInit:
-	#Calculate start of inner row position
-	add $t6, $t3, 3
-
-  	#Calculate end of inner row position:
-  	add $t4, $t3, $t8	# Start of row + row size 
-  	sub $t4, $t4, $t9 	# - padding 
-  	sub $t4, $t4, 3		# - 1 pixel
+	jal rowProcessingInit
 
 bottomLeftCornerPixel:
 	##### START FILTERING #####
@@ -416,11 +410,7 @@ bottomLeftCornerPixel:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Go to the next left edge pixel's byte
 	add $t3, $t3, 1
@@ -480,11 +470,7 @@ bottomEdgeMiddlePixels:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Increment byte
 	add $t3, $t3, 1
@@ -539,11 +525,7 @@ bottomRightCornerPixel:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Go to the next right edge pixel's byte
 	add $t3, $t3, 1
@@ -553,13 +535,7 @@ bottomRightCornerPixel:
 	add  $t3, $t3, $t9  # advance current position by the number of padding bytes
 	
 nextRow:
-	#Calculate start of inner row position
-	add $t6, $t3, 3
-
-  	#Calculate end of inner row position:
-  	add $t4, $t3, $t8	# Start of row + row size 
-  	sub $t4, $t4, $t9 	# - padding 
-  	sub $t4, $t4, 3		# - 1 pixel
+	jal rowProcessingInit
 
 leftEdgePixel:
 	##### START FILTERING #####
@@ -626,11 +602,7 @@ leftEdgePixel:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Go to the next left edge pixel's byte
 	add $t3, $t3, 1
@@ -711,11 +683,7 @@ middlePixels:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Increment byte
 	add $t3, $t3, 1
@@ -793,11 +761,7 @@ rightEdgePixel:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Go to the next right edge pixel's byte
 	add $t3, $t3, 1
@@ -854,13 +818,7 @@ changeState:
 	li $t7, 1
 
 lastRowInit:
-	#Calculate start of inner row position
-	add $t6, $t3, 3
-
-  	#Calculate end of inner row position:
-  	add $t4, $t3, $t8	# Start of row + row size 
-  	sub $t4, $t4, $t9 	# - padding 
-  	sub $t4, $t4, 3		# - 1 pixel
+	jal rowProcessingInit
 
   	#Save the start of last row position
   	move $t5, $t3
@@ -930,11 +888,7 @@ lastRowLeftEdgePixel:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Go to the next left edge pixel's byte
 	add $t3, $t3, 1
@@ -1015,11 +969,7 @@ lastRowMiddlePixels:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Increment byte
 	add $t3, $t3, 1
@@ -1097,11 +1047,7 @@ lastRowRightEdgePixel:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Go to the next right edge pixel's byte
 	add $t3, $t3, 1
@@ -1120,13 +1066,7 @@ writeToFile2:
 firstRowInit:
 	move $t3, $zero
 
-	#Calculate start of inner row position
-	add $t6, $t3, 3
-
-  	#Calculate end of inner row position:
-  	add $t4, $t3, $t8	# Start of row + row size 
-  	sub $t4, $t4, $t9 	# - padding 
-  	sub $t4, $t4, 3		# - 1 pixel
+	jal rowProcessingInit
 
 firstRowLeftEdgePixel:
 	##### START FILTERING #####
@@ -1193,11 +1133,7 @@ firstRowLeftEdgePixel:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Go to the next left edge pixel's byte
 	add $t3, $t3, 1
@@ -1278,11 +1214,7 @@ firstRowMiddlePixels:
 
 	##### END OF FILTERING #####
 	
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Increment byte
 	add $t3, $t3, 1
@@ -1360,11 +1292,7 @@ firstRowRightEdgePixel:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Go to the next right edge pixel's byte
 	add $t3, $t3, 1
@@ -1445,11 +1373,7 @@ topLeftCornerPixel:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Go to the next left edge pixel's byte
 	add $t3, $t3, 1
@@ -1524,11 +1448,7 @@ topEdgeMiddlePixels:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Increment byte
 	add $t3, $t3, 1
@@ -1596,11 +1516,7 @@ topRightCornerPixel:
 
 	##### END OF FILTERING #####
 
-	# Calculate new pixel's byte value:
-	div $s5, $s3		
-	mflo $s4		
-	
-	jal storeValueInOutbuffer
+	jal calculateNewValueAndStore
 	
 	# Go to the next right edge pixel's byte
 	add $t3, $t3, 1
@@ -1647,8 +1563,12 @@ headerError:
 	
 	b exit
 
+	
+calculateNewValueAndStore:
+	# Calculate new pixel's byte value:
+	div $s5, $s3		
+	mflo $s4
 
-storeValueInOutbuffer:
 	# Check pixel's byte value
 	li $s5, 255
 	bgt $s4, $s5, outOfBounds
@@ -1659,6 +1579,20 @@ storeValueInOutbuffer:
 	sb $s4, outbuffer($t3)
 	jr $ra
 
-outOfBounds:
+	outOfBounds:
 	sb $s5, outbuffer($t3)
 	jr $ra
+
+
+rowProcessingInit:
+	#Calculate start of inner row position
+	add $t6, $t3, 3
+
+  	#Calculate end of inner row position:
+  	add $t4, $t3, $t8	# Start of row + row size 
+  	sub $t4, $t4, $t9 	# - padding 
+  	sub $t4, $t4, 3		# - 1 pixel
+
+  	jr $ra
+
+

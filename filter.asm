@@ -420,8 +420,7 @@ bottomLeftCornerPixel:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Go to the next left edge pixel's byte
 	add $t3, $t3, 1
@@ -485,8 +484,7 @@ bottomEdgeMiddlePixels:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Increment byte
 	add $t3, $t3, 1
@@ -545,8 +543,7 @@ bottomRightCornerPixel:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Go to the next right edge pixel's byte
 	add $t3, $t3, 1
@@ -633,8 +630,7 @@ leftEdgePixel:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Go to the next left edge pixel's byte
 	add $t3, $t3, 1
@@ -719,8 +715,7 @@ middlePixels:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Increment byte
 	add $t3, $t3, 1
@@ -802,8 +797,7 @@ rightEdgePixel:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Go to the next right edge pixel's byte
 	add $t3, $t3, 1
@@ -940,8 +934,7 @@ lastRowLeftEdgePixel:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Go to the next left edge pixel's byte
 	add $t3, $t3, 1
@@ -1026,8 +1019,7 @@ lastRowMiddlePixels:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Increment byte
 	add $t3, $t3, 1
@@ -1109,8 +1101,7 @@ lastRowRightEdgePixel:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Go to the next right edge pixel's byte
 	add $t3, $t3, 1
@@ -1206,8 +1197,7 @@ firstRowLeftEdgePixel:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Go to the next left edge pixel's byte
 	add $t3, $t3, 1
@@ -1292,8 +1282,7 @@ firstRowMiddlePixels:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Increment byte
 	add $t3, $t3, 1
@@ -1375,8 +1364,7 @@ firstRowRightEdgePixel:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Go to the next right edge pixel's byte
 	add $t3, $t3, 1
@@ -1461,8 +1449,7 @@ topLeftCornerPixel:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Go to the next left edge pixel's byte
 	add $t3, $t3, 1
@@ -1541,8 +1528,7 @@ topEdgeMiddlePixels:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Increment byte
 	add $t3, $t3, 1
@@ -1614,8 +1600,7 @@ topRightCornerPixel:
 	div $s5, $s3		
 	mflo $s4		
 	
-	# Store this value in outbuffer:
-	sb $s4, outbuffer($t3)
+	jal storeValueInOutbuffer
 	
 	# Go to the next right edge pixel's byte
 	add $t3, $t3, 1
@@ -1661,3 +1646,19 @@ headerError:
 	syscall
 	
 	b exit
+
+
+storeValueInOutbuffer:
+	# Check pixel's byte value
+	li $s5, 255
+	bgt $s4, $s5, outOfBounds
+	li $s5, 0
+	blt $s4, $s5, outOfBounds
+
+	# Store value in outbuffer:
+	sb $s4, outbuffer($t3)
+	jr $ra
+
+outOfBounds:
+	sb $s5, outbuffer($t3)
+	jr $ra
